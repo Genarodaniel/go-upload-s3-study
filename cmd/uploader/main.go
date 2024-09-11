@@ -62,6 +62,20 @@ func main() {
 	defer dir.Close()
 
 	uploadControl := make(chan struct{}, 100)
+	errorFileUpload := make(chan string, 3)
+
+	go func() {
+		for {
+			select {
+			case filename := <-errorFileUpload:
+				uploadControl <- struct{}{}
+				wg.Add(1)
+				go uploadFile(filename, uploadControl, errorFileUpload)
+			}
+		}
+
+	}()
+
 	for {
 		files, err := dir.ReadDir(1)
 		if err != nil {
@@ -73,12 +87,12 @@ func main() {
 		}
 		wg.Add(1)
 		uploadControl <- struct{}{}
-		go uploadFile(files[0].Name(), uploadControl)
+		go uploadFile(files[0].Name(), uploadControl, errorFileUpload)
 	}
 	wg.Wait()
 }
 
-func uploadFile(filename string, uploadControl <-chan struct{}) {
+func uploadFile(filename string, uploadControl <-chan struct{}, errorList chan string) {
 	defer wg.Done()
 	completeFileName := fmt.Sprintf("../../tmp/%s", filename)
 
@@ -88,6 +102,7 @@ func uploadFile(filename string, uploadControl <-chan struct{}) {
 	if err != nil {
 		fmt.Printf("Error opening file %s \n", completeFileName)
 		<-uploadControl // esvazia o canal
+		errorList <- filename
 		return
 	}
 	defer f.Close()
@@ -100,6 +115,7 @@ func uploadFile(filename string, uploadControl <-chan struct{}) {
 	if err != nil {
 		fmt.Printf("Error uploading file %s \n", completeFileName)
 		<-uploadControl // esvazia o canal
+		errorList <- filename
 		return
 	}
 
